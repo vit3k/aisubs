@@ -28,12 +28,12 @@ AISubTranslator is a tool and web service for extracting subtitles from video fi
 ### Locally
 
 1. Install Go (1.21 or newer) and FFmpeg.
-2. Clone this repository and navigate to the `aisubs2` directory.
+2. Clone this repository and navigate to the `aisubtranslator` directory.
 3. Build the binary:
 
    ```bash
    cd src
-   go build -o ../aisubs
+   go build -o ../aisubtranslator
    ```
 
 ### With Docker
@@ -42,7 +42,7 @@ AISubTranslator is a tool and web service for extracting subtitles from video fi
 2. Build the Docker image:
 
    ```bash
-   docker build -t aisubs .
+   docker build -t aisubtranslator .
    ```
 
 ## Running
@@ -50,7 +50,7 @@ AISubTranslator is a tool and web service for extracting subtitles from video fi
 ### Command-Line Usage
 
 ```bash
-./aisubs2 <input_file> | -s
+./aisubtranslator <input_file> | -s
 ```
 
 - `<input_file>`: Path to an MKV video or subtitle file.
@@ -61,9 +61,9 @@ AISubTranslator is a tool and web service for extracting subtitles from video fi
 **Example:**
 
 ```bash
-./aisubs mymovie.mkv
-./aisubs subtitles.srt
-./aisubs -s
+./aisubtranslator mymovie.mkv
+./aisubtranslator subtitles.srt
+./aisubtranslator -s
 ```
 
 ### Web Service
@@ -119,17 +119,17 @@ Or with Docker Compose:
 
 Extract and translate subtitles from a video file:
 ```bash
-./aisubs2 mymovie.mkv
+./aisubtranslator mymovie.mkv
 ```
 
 Translate an existing subtitle file:
 ```bash
-./aisubs2 subtitles.srt
+./aisubtranslator subtitles.srt
 ```
 
 Run the web service:
 ```bash
-./aisubs2 -s
+./aisubtranslator -s
 ```
 
 ### Docker
