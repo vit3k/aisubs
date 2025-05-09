@@ -232,7 +232,6 @@ func (ff *FFmpeg) ListSubtitleTracks(mediaPath string) ([]SubtitleTrack, error) 
 	var tracks []SubtitleTrack
 	trackIndex := 0
 
-	fmt.Println("Scanning media file for subtitle streams...")
 	//var lastSubtitleIdx = -1
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
@@ -285,7 +284,7 @@ func (ff *FFmpeg) ListSubtitleTracks(mediaPath string) ([]SubtitleTrack, error) 
 				track.Language = normalizeLanguageCode(track.Title)
 			}
 
-			fmt.Printf("Parsed track: Index=%d, Language=%s, Format=%s, Title=%s\n", track.Index, track.Language, track.Format, track.Title)
+			//fmt.Printf("Parsed track: Index=%d, Language=%s, Format=%s, Title=%s\n", track.Index, track.Language, track.Format, track.Title)
 			tracks = append(tracks, track)
 			trackIndex++
 		}
