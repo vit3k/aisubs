@@ -14,6 +14,7 @@ type SubtitleTrack struct {
 	Index    int
 	Language string
 	Format   string
+	Title    string
 }
 
 // FFmpeg encapsulates ffmpeg functionality
@@ -28,30 +29,30 @@ func NewFFmpeg() (*FFmpeg, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ffmpeg not found in PATH: %v", err)
 	}
-	
+
 	// Verify the executable exists and is executable
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("error checking ffmpeg executable: %v", err)
 	}
-	
+
 	// Check if it's a regular file and has execute permission
 	mode := fileInfo.Mode()
 	if !mode.IsRegular() {
 		return nil, fmt.Errorf("ffmpeg path is not a regular file: %s", path)
 	}
-	
+
 	// On Unix systems, check execute permission (0100)
 	if mode&0111 == 0 {
 		return nil, fmt.Errorf("ffmpeg file is not executable: %s", path)
 	}
-	
+
 	// Test execute ffmpeg to verify it works
 	cmd := exec.Command(path, "-version")
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to execute ffmpeg: %v", err)
 	}
-	
+
 	return &FFmpeg{
 		Path:      path,
 		LogOutput: true, // Default to logging output
@@ -63,7 +64,7 @@ func NewFFmpegWithPath(path string) (*FFmpeg, error) {
 	if path == "" {
 		return nil, fmt.Errorf("ffmpeg path cannot be empty")
 	}
-	
+
 	// Check if the file exists
 	fileInfo, err := os.Stat(path)
 	if err != nil {
@@ -72,23 +73,23 @@ func NewFFmpegWithPath(path string) (*FFmpeg, error) {
 		}
 		return nil, fmt.Errorf("error checking ffmpeg executable: %v", err)
 	}
-	
+
 	// Check if it's a regular file
 	if !fileInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("ffmpeg path is not a regular file: %s", path)
 	}
-	
+
 	// On Unix systems, check execute permission (0100)
 	if fileInfo.Mode()&0111 == 0 {
 		return nil, fmt.Errorf("ffmpeg file is not executable: %s", path)
 	}
-	
+
 	// Verify ffmpeg works by running a simple command
 	cmd := exec.Command(path, "-version")
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to execute ffmpeg at %s: %v", path, err)
 	}
-	
+
 	return &FFmpeg{
 		Path:      path,
 		LogOutput: true,
@@ -232,50 +233,68 @@ func (ff *FFmpeg) ListSubtitleTracks(mediaPath string) ([]SubtitleTrack, error) 
 	trackIndex := 0
 
 	fmt.Println("Scanning media file for subtitle streams...")
-	for _, line := range lines {
-		if strings.Contains(line, "Stream") {
-			if strings.Contains(line, "Subtitle") {
-				// Example: Stream #0:2(eng): Subtitle: subrip
-				track := SubtitleTrack{
-					Index: trackIndex,
-				}
+	//var lastSubtitleIdx = -1
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if strings.Contains(line, "Stream") && strings.Contains(line, "Subtitle") {
+			// Example: Stream #0:2(eng): Subtitle: subrip
+			track := SubtitleTrack{
+				Index: trackIndex,
+			}
 
-				// Extract language
-				if langStart := strings.Index(line, "("); langStart != -1 {
-					if langEnd := strings.Index(line[langStart:], ")"); langEnd != -1 {
-						track.Language = line[langStart+1 : langStart+langEnd]
+			// Extract language
+			if langStart := strings.Index(line, "("); langStart != -1 {
+				if langEnd := strings.Index(line[langStart:], ")"); langEnd != -1 {
+					track.Language = line[langStart+1 : langStart+langEnd]
+				}
+			}
+
+			// Extract format
+			if formatStart := strings.Index(line, "Subtitle: "); formatStart != -1 {
+				restOfLine := line[formatStart+10:]        // Skip "Subtitle: "
+				restOfLine = strings.TrimSpace(restOfLine) // Trim leading spaces
+				for j, char := range restOfLine {
+					if char == ' ' || char == '(' {
+						track.Format = restOfLine[:j]
+						break
 					}
 				}
+				// If no space or parenthesis is found, use the entire remaining string
+				if track.Format == "" {
+					track.Format = restOfLine
+				}
+			}
 
-				// Extract format
-				// Extract type and format
-				if formatStart := strings.Index(line, "Subtitle: "); formatStart != -1 {
-					restOfLine := line[formatStart+10:]        // Skip "Subtitle: "
-					restOfLine = strings.TrimSpace(restOfLine) // Trim leading spaces
-					for i, char := range restOfLine {
-						if char == ' ' || char == '(' {
-							track.Format = restOfLine[:i]
-							break
+			// Look ahead for Metadata and title
+			if i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "Metadata:" {
+				i++ // move to Metadata:
+				for i+1 < len(lines) && (strings.HasPrefix(lines[i+1], "      ") || strings.HasPrefix(lines[i+1], "\t")) {
+					metaLine := strings.TrimSpace(lines[i+1])
+					if strings.HasPrefix(metaLine, "title") {
+						// metaLine is like "title           : English"
+						if colonIdx := strings.Index(metaLine, ":"); colonIdx != -1 {
+							track.Title = strings.TrimSpace(metaLine[colonIdx+1:])
 						}
 					}
-					// If no space or parenthesis is found, use the entire remaining string
-					if track.Format == "" {
-						track.Format = restOfLine
-					}
+					i++
 				}
-				fmt.Printf("Parsed track: Index=%d, Language=%s, Format=%s\n", track.Index, track.Language, track.Format)
-				fmt.Printf("Parsed subtitle track: Index=%d, Language=%s, Format=%s\n", track.Index, track.Language, track.Format)
-
-				tracks = append(tracks, track)
-				trackIndex++
 			}
+
+			// If language is still empty, try to infer from title
+			if track.Language == "" && track.Title != "" {
+				track.Language = normalizeLanguageCode(track.Title)
+			}
+
+			fmt.Printf("Parsed track: Index=%d, Language=%s, Format=%s, Title=%s\n", track.Index, track.Language, track.Format, track.Title)
+			tracks = append(tracks, track)
+			trackIndex++
 		}
 	}
-	
+
 	if len(tracks) == 0 {
 		return tracks, fmt.Errorf("no subtitle tracks found in the media file: %s", mediaPath)
 	}
-	
+
 	return tracks, nil
 }
 
@@ -287,22 +306,22 @@ func (ff *FFmpeg) ExtractSubtitleTrack(mediaPath string, trackIndex int, outputF
 	if mediaPath == "" {
 		return "", fmt.Errorf("media path cannot be empty")
 	}
-	
+
 	// Check if the media file exists
 	if _, err := os.Stat(mediaPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("media file does not exist: %s", mediaPath)
 	}
-	
+
 	// Validate track index
 	if trackIndex < 0 {
 		return "", fmt.Errorf("invalid track index: %d, must be >= 0", trackIndex)
 	}
-	
+
 	// Validate output format
 	if outputFormat != "srt" && outputFormat != "ass" {
 		return "", fmt.Errorf("invalid output format: %s, must be 'srt' or 'ass'", outputFormat)
 	}
-	
+
 	// Create output filename based on input filename and language code
 	baseFilename := filepath.Base(mediaPath)
 	baseFilename = strings.TrimSuffix(baseFilename, filepath.Ext(baseFilename))
@@ -333,7 +352,7 @@ func (ff *FFmpeg) ExtractSubtitleTrack(mediaPath string, trackIndex int, outputF
 		}
 		return "", fmt.Errorf("failed to extract subtitle: %v\nffmpeg error: %s", err, stderr)
 	}
-	
+
 	// Verify output file was created
 	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("ffmpeg ran successfully but output file was not created: %s", outputPath)

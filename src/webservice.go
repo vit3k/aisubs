@@ -32,6 +32,7 @@ func RunWebService() {
 	http.HandleFunc("/subtitles", handleSubtitles)
 	http.HandleFunc("/translate", handleTranslate)
 	http.HandleFunc("/job", handleJob)
+	http.HandleFunc("/media", handleMedia)
 
 	port := 8080
 	fmt.Printf("Web service running on port %d\n", port)
@@ -177,4 +178,55 @@ func handleTranslate(w http.ResponseWriter, r *http.Request) {
 		"message": "Translation job created",
 		"job_id":  job.ID,
 	})
+}
+
+// handleMedia handles the /media endpoint for listing media files in a directory
+func handleMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendErrorResponse(w, "Invalid request method", "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get the directory path from the query parameters
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		sendErrorResponse(w, "Missing parameter", "The 'path' query parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the directory exists
+	fileInfo, err := os.Stat(dirPath)
+	if os.IsNotExist(err) {
+		sendErrorResponse(w, "Directory not found", fmt.Sprintf("The directory '%s' does not exist", dirPath), http.StatusNotFound)
+		return
+	} else if err != nil {
+		sendErrorResponse(w, "Directory access error", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Verify that the path is actually a directory
+	if !fileInfo.IsDir() {
+		sendErrorResponse(w, "Invalid path", fmt.Sprintf("The path '%s' is not a directory", dirPath), http.StatusBadRequest)
+		return
+	}
+
+	fmt.Printf("Scanning directory for media files: %s\n", dirPath)
+	groupedMediaFiles, err := FindMediaFiles(dirPath)
+	if err != nil {
+		errorMsg := fmt.Sprintf("Error scanning directory: %v", err)
+		sendErrorResponse(w, "Directory scan error", errorMsg, http.StatusInternalServerError)
+		fmt.Println(errorMsg)
+		return
+	}
+
+	if len(groupedMediaFiles) == 0 {
+		fmt.Printf("No media files found in: %s\n", dirPath)
+		// Return an empty array rather than an error for this case
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]GroupedMediaFile{})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(groupedMediaFiles)
 }
