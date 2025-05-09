@@ -1,0 +1,71 @@
+# Compiled Object files, Static and Dynamic libs (Shared Objects)
+*.o
+*.a
+*.so
+
+# Folders
+_obj
+_test
+vendor/
+
+# Architecture specific extensions/prefixes
+*.[568vq]
+[568vq].out
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.test
+*.out
+*.prof
+*.pprof
+*.trace
+profile.cov
+
+# Dep and Go module files
+Gopkg.lock
+Gopkg.toml
+go.work
+go.work.sum
+
+# Temporary directory
+tmp/
+temp/
+
+# Build directory
+bin/
+build/
+dist/
+
+# Log files
+*.log
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+extracted_subtitles/
+*.srt
+*.pl.srt
+*.ass
+*.pl.ass
+*.pl.vtt
+
+aisubs
+
+# Data directory - ignore content but keep directory
+data/*
+!data/.gitkeep

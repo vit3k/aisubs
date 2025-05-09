@@ -1,16 +1,16 @@
 module aisubs
 
-go 1.23.2
+go 1.21
 
 require (
 	github.com/asticode/go-astikit v0.20.0 // indirect
-	github.com/asticode/go-astisub v0.34.0 // indirect
+	github.com/asticode/go-astisub v0.34.0
 	github.com/asticode/go-astits v1.8.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
-	github.com/invopop/jsonschema v0.13.0 // indirect
+	github.com/invopop/jsonschema v0.13.0
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/openai/openai-go v0.1.0-beta.10 // indirect
+	github.com/openai/openai-go v0.1.0-beta.10
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

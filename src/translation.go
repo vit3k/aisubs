@@ -70,29 +70,37 @@ var TranslationResponseSchema = GenerateSchema[TranslationResponse]()
 
 // Translator handles subtitle translation operations
 type Translator struct {
-	client openai.Client
-	config TranslationConfig
+	client          openai.Client
+	config          TranslationConfig
+	progressChannel chan<- float64
 }
 
 // NewTranslator creates a new Translator instance with the default configuration
 func NewTranslator() *Translator {
 	return &Translator{
-		client: openai.NewClient(),
-		config: DefaultTranslationConfig(),
+		client:          openai.NewClient(),
+		config:          DefaultTranslationConfig(),
+		progressChannel: nil,
 	}
 }
 
 // NewTranslatorWithConfig creates a new Translator with a custom configuration
 func NewTranslatorWithConfig(config TranslationConfig) *Translator {
 	return &Translator{
-		client: openai.NewClient(),
-		config: config,
+		client:          openai.NewClient(),
+		config:          config,
+		progressChannel: nil,
 	}
 }
 
 // SetConfig updates the translator configuration
 func (t *Translator) SetConfig(config TranslationConfig) {
 	t.config = config
+}
+
+// SetProgressChannel sets a channel that will receive progress updates
+func (t *Translator) SetProgressChannel(progressChan chan<- float64) {
+	t.progressChannel = progressChan
 }
 
 // TranslateSubtitleFile translates subtitles from a file path
@@ -137,6 +145,15 @@ func (t *Translator) TranslateSubtitles(subs *astisub.Subtitles) error {
 	// Channel to collect results from all goroutines
 	translationResultsChan := make(chan []Subtitle, batchCount+1)
 	
+	// Progress tracking
+	completedBatches := 0
+	var progressMutex sync.Mutex
+	
+	// Report initial progress
+	if t.progressChannel != nil {
+		t.progressChannel <- 0.0
+	}
+	
 	// Process each batch in a separate goroutine
 	for i := 0; i < batchCount; i++ {
 		semaphore <- struct{}{}
@@ -147,9 +164,20 @@ func (t *Translator) TranslateSubtitles(subs *astisub.Subtitles) error {
 		batch := subs.Items[start:end]
 		
 		wg.Add(1)
-		go func(batch []*astisub.Item) {
+		go func(batch []*astisub.Item, batchIndex int) {
 			defer wg.Done()
-			defer func() { <-semaphore }()
+			defer func() { 
+				<-semaphore 
+				
+				// Update progress after batch completes
+				if t.progressChannel != nil {
+					progressMutex.Lock()
+					completedBatches++
+					progress := float64(completedBatches) / float64(batchCount) * 100.0
+					progressMutex.Unlock()
+					t.progressChannel <- progress
+				}
+			}()
 			
 			translated, err := t.translateBatch(batch)
 			if err != nil {
@@ -157,7 +185,7 @@ func (t *Translator) TranslateSubtitles(subs *astisub.Subtitles) error {
 				return
 			}
 			translationResultsChan <- translated
-		}(batch)
+		}(batch, i)
 	}
 
 	// Wait for all goroutines to finish and close the results channel

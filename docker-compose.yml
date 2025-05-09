@@ -1,0 +1,17 @@
+services:
+    aisubs2:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        ports:
+            - "8080:8080"
+        volumes:
+            - ./data:/app/data
+            - /mnt/media:/mnt/media
+        environment:
+            - OPENAI_API_KEY=${OPENAI_API_KEY}
+        restart: unless-stopped
+
+volumes:
+    data:
+        driver: local

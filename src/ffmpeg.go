@@ -26,8 +26,32 @@ type FFmpeg struct {
 func NewFFmpeg() (*FFmpeg, error) {
 	path, err := exec.LookPath("ffmpeg")
 	if err != nil {
-		return nil, fmt.Errorf("ffmpeg not found: %v", err)
+		return nil, fmt.Errorf("ffmpeg not found in PATH: %v", err)
 	}
+	
+	// Verify the executable exists and is executable
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("error checking ffmpeg executable: %v", err)
+	}
+	
+	// Check if it's a regular file and has execute permission
+	mode := fileInfo.Mode()
+	if !mode.IsRegular() {
+		return nil, fmt.Errorf("ffmpeg path is not a regular file: %s", path)
+	}
+	
+	// On Unix systems, check execute permission (0100)
+	if mode&0111 == 0 {
+		return nil, fmt.Errorf("ffmpeg file is not executable: %s", path)
+	}
+	
+	// Test execute ffmpeg to verify it works
+	cmd := exec.Command(path, "-version")
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute ffmpeg: %v", err)
+	}
+	
 	return &FFmpeg{
 		Path:      path,
 		LogOutput: true, // Default to logging output
@@ -36,9 +60,35 @@ func NewFFmpeg() (*FFmpeg, error) {
 
 // NewFFmpegWithPath creates a new FFmpeg instance with a custom path
 func NewFFmpegWithPath(path string) (*FFmpeg, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("ffmpeg not found at path %s: %v", path, err)
+	if path == "" {
+		return nil, fmt.Errorf("ffmpeg path cannot be empty")
 	}
+	
+	// Check if the file exists
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("ffmpeg not found at path %s", path)
+		}
+		return nil, fmt.Errorf("error checking ffmpeg executable: %v", err)
+	}
+	
+	// Check if it's a regular file
+	if !fileInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("ffmpeg path is not a regular file: %s", path)
+	}
+	
+	// On Unix systems, check execute permission (0100)
+	if fileInfo.Mode()&0111 == 0 {
+		return nil, fmt.Errorf("ffmpeg file is not executable: %s", path)
+	}
+	
+	// Verify ffmpeg works by running a simple command
+	cmd := exec.Command(path, "-version")
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to execute ffmpeg at %s: %v", path, err)
+	}
+	
 	return &FFmpeg{
 		Path:      path,
 		LogOutput: true,
@@ -52,7 +102,26 @@ func (ff *FFmpeg) SetLogOutput(logOutput bool) {
 
 // RunCommand executes an ffmpeg command and captures its output
 func (ff *FFmpeg) RunCommand(args ...string) (string, string, error) {
+	if ff.Path == "" {
+		return "", "", fmt.Errorf("ffmpeg path is not set")
+	}
+
+	// Verify ffmpeg executable exists
+	if _, err := os.Stat(ff.Path); os.IsNotExist(err) {
+		return "", "", fmt.Errorf("ffmpeg executable not found at %s", ff.Path)
+	}
+
 	cmd := exec.Command(ff.Path, args...)
+
+	// Create context with timeout if needed
+	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// defer cancel()
+	// cmd = exec.CommandContext(ctx, ff.Path, args...)
+
+	// Log the command being executed for debugging
+	if ff.LogOutput {
+		fmt.Printf("Executing: %s %s\n", ff.Path, strings.Join(args, " "))
+	}
 
 	// Create pipes for stdout and stderr
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -67,6 +136,13 @@ func (ff *FFmpeg) RunCommand(args ...string) (string, string, error) {
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
+		// Check common errors
+		if os.IsNotExist(err) {
+			return "", "", fmt.Errorf("ffmpeg executable not found: %v", err)
+		}
+		if os.IsPermission(err) {
+			return "", "", fmt.Errorf("permission denied when running ffmpeg: %v", err)
+		}
 		return "", "", fmt.Errorf("failed to start ffmpeg: %v", err)
 	}
 
@@ -115,13 +191,39 @@ func (ff *FFmpeg) RunCommand(args ...string) (string, string, error) {
 	<-stdoutDone
 	<-stderrDone
 
-	return stdout.String(), stderr.String(), err
+	// Parse specific errors from stderr
+	stderrStr := stderr.String()
+	if err != nil && stderrStr != "" {
+		if strings.Contains(stderrStr, "No such file or directory") {
+			return stdout.String(), stderrStr, fmt.Errorf("ffmpeg couldn't find the input file: %v", err)
+		}
+		if strings.Contains(stderrStr, "Permission denied") {
+			return stdout.String(), stderrStr, fmt.Errorf("permission denied when accessing file: %v", err)
+		}
+		if strings.Contains(stderrStr, "Invalid data found when processing input") {
+			return stdout.String(), stderrStr, fmt.Errorf("invalid or corrupted input file: %v", err)
+		}
+	}
+
+	return stdout.String(), stderrStr, err
 }
 
 // ListSubtitleTracks lists all subtitle tracks in a media file
 func (ff *FFmpeg) ListSubtitleTracks(mediaPath string) ([]SubtitleTrack, error) {
+	// Check if the media file exists
+	if _, err := os.Stat(mediaPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("media file does not exist: %s", mediaPath)
+	}
+
 	// Run ffmpeg to get information about the media file
-	_, stderr, _ := ff.RunCommand("-i", mediaPath)
+	_, stderr, err := ff.RunCommand("-i", mediaPath)
+	if err != nil {
+		// Don't return an error here as ffmpeg returns non-zero when used with -i flag alone
+		// We just need the output for parsing
+		if !strings.Contains(stderr, "Input #0") {
+			return nil, fmt.Errorf("failed to get media info: %v", err)
+		}
+	}
 
 	// Parse the output to find subtitle tracks
 	lines := strings.Split(stderr, "\n")
@@ -167,10 +269,13 @@ func (ff *FFmpeg) ListSubtitleTracks(mediaPath string) ([]SubtitleTrack, error) 
 				tracks = append(tracks, track)
 				trackIndex++
 			}
-
 		}
-
 	}
+	
+	if len(tracks) == 0 {
+		return tracks, fmt.Errorf("no subtitle tracks found in the media file: %s", mediaPath)
+	}
+	
 	return tracks, nil
 }
 
@@ -178,11 +283,36 @@ func (ff *FFmpeg) ListSubtitleTracks(mediaPath string) ([]SubtitleTrack, error) 
 // trackIndex is the index of the track to extract (0 for first subtitle track)
 // outputFormat should be "srt" or "ass"
 func (ff *FFmpeg) ExtractSubtitleTrack(mediaPath string, trackIndex int, outputFormat string, langCode string) (string, error) {
+	// Validate input parameters
+	if mediaPath == "" {
+		return "", fmt.Errorf("media path cannot be empty")
+	}
+	
+	// Check if the media file exists
+	if _, err := os.Stat(mediaPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("media file does not exist: %s", mediaPath)
+	}
+	
+	// Validate track index
+	if trackIndex < 0 {
+		return "", fmt.Errorf("invalid track index: %d, must be >= 0", trackIndex)
+	}
+	
+	// Validate output format
+	if outputFormat != "srt" && outputFormat != "ass" {
+		return "", fmt.Errorf("invalid output format: %s, must be 'srt' or 'ass'", outputFormat)
+	}
+	
 	// Create output filename based on input filename and language code
 	baseFilename := filepath.Base(mediaPath)
 	baseFilename = strings.TrimSuffix(baseFilename, filepath.Ext(baseFilename))
 	outputDir := filepath.Dir(mediaPath) // Get the directory of the input file
 	outputPath := filepath.Join(outputDir, fmt.Sprintf("%s.%s.%s", baseFilename, langCode, outputFormat))
+
+	// Ensure output directory exists
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %v", err)
+	}
 
 	// Run ffmpeg to extract subtitle
 	_, stderr, err := ff.RunCommand(
@@ -193,7 +323,20 @@ func (ff *FFmpeg) ExtractSubtitleTrack(mediaPath string, trackIndex int, outputF
 	)
 
 	if err != nil {
+		// Check if the error is due to the track index being out of range
+		if strings.Contains(stderr, "Invalid stream specifier") {
+			return "", fmt.Errorf("invalid subtitle track index %d: %v", trackIndex, err)
+		}
+		// Check if it failed to write the output file
+		if strings.Contains(stderr, "Permission denied") {
+			return "", fmt.Errorf("permission denied when writing to %s: %v", outputPath, err)
+		}
 		return "", fmt.Errorf("failed to extract subtitle: %v\nffmpeg error: %s", err, stderr)
+	}
+	
+	// Verify output file was created
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("ffmpeg ran successfully but output file was not created: %s", outputPath)
 	}
 
 	return outputPath, nil
