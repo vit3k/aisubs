@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"sync"
@@ -128,7 +129,7 @@ func (t *Translator) TranslateSubtitleFile(inputPath, outputPath string) error {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
-	fmt.Printf("Translated subtitles saved to %s\n", outputPath)
+	slog.Info("Translated subtitles saved", "path", outputPath)
 	return nil
 }
 
@@ -157,7 +158,7 @@ func (t *Translator) TranslateSubtitles(subs *astisub.Subtitles) error {
 	// Process each batch in a separate goroutine
 	for i := 0; i < batchCount; i++ {
 		semaphore <- struct{}{}
-		fmt.Printf("Batch %d / %d\n", i+1, batchCount)
+		slog.Info("Processing translation batch", "batch", i+1, "total", batchCount)
 		
 		start := i * batchSize
 		end := min(start+batchSize, len(subs.Items))
@@ -181,7 +182,7 @@ func (t *Translator) TranslateSubtitles(subs *astisub.Subtitles) error {
 			
 			translated, err := t.translateBatch(batch)
 			if err != nil {
-				fmt.Printf("Error translating batch: %v\n", err)
+				slog.Error("Failed to translate batch", "error", err)
 				return
 			}
 			translationResultsChan <- translated

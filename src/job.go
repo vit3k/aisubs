@@ -4,10 +4,23 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
 )
+
+// Global job manager and database
+var jobManager *JobManager
+var jobManagerOnce sync.Once
+
+// GetJobManager returns the singleton job manager instance
+func GetJobManager() *JobManager {
+	jobManagerOnce.Do(func() {
+		jobManager = NewJobManager()
+	})
+	return jobManager
+}
 
 // generateUUID creates a random UUID
 func generateUUID() string {
@@ -179,21 +192,21 @@ func (jm *JobManager) ProcessJob(id string) {
 		// Get the job
 		job, err := jm.GetJob(id)
 		if err != nil {
-			fmt.Printf("Error getting job %s: %v\n", id, err)
+			slog.Error("Error getting job", "id", id, "error", err)
 			return
 		}
 
 		// Update job status to processing
 		err = jm.UpdateJobStatus(id, JobStatusProcessing)
 		if err != nil {
-			fmt.Printf("Error updating job status: %v\n", err)
+			slog.Error("Error updating job status", "id", id, "error", err)
 			return
 		}
 
 		// Initialize progress at 0%
 		err = jm.UpdateJobProgress(id, 0.0)
 		if err != nil {
-			fmt.Printf("Error updating job progress: %v\n", err)
+			slog.Error("Error updating job progress", "id", id, "error", err)
 			return
 		}
 
@@ -205,7 +218,7 @@ func (jm *JobManager) ProcessJob(id string) {
 			for progress := range progressChan {
 				err := jm.UpdateJobProgress(id, progress)
 				if err != nil {
-					fmt.Printf("Error updating job progress: %v\n", err)
+					slog.Error("Error updating job progress", "id", id, "error", err)
 				}
 			}
 		}()
@@ -213,7 +226,7 @@ func (jm *JobManager) ProcessJob(id string) {
 		// Detect file type
 		fileType, err := DetectFileType(job.Path)
 		if err != nil {
-			fmt.Printf("Error detecting file type: %v\n", err)
+			slog.Error("Error detecting file type", "path", job.Path, "error", err)
 			jm.SetJobError(id, fmt.Errorf("error detecting file type: %w", err))
 			close(progressChan)
 			return
@@ -230,7 +243,7 @@ func (jm *JobManager) ProcessJob(id string) {
 			// Verify file exists and is accessible
 			if _, err := os.Stat(job.Path); os.IsNotExist(err) {
 				errMsg := fmt.Sprintf("video file '%s' does not exist", job.Path)
-				fmt.Printf("Job %s: %s\n", id, errMsg)
+				slog.Error("Video file does not exist", "id", id, "path", job.Path)
 				jm.SetJobError(id, fmt.Errorf(errMsg))
 				close(progressChan)
 				return
@@ -238,7 +251,7 @@ func (jm *JobManager) ProcessJob(id string) {
 
 			ff, err := NewFFmpeg()
 			if err != nil {
-				fmt.Printf("Job %s: Error initializing FFmpeg: %v\n", id, err)
+				slog.Error("Error initializing FFmpeg", "id", id, "error", err)
 				jm.SetJobError(id, fmt.Errorf("error initializing FFmpeg: %w", err))
 				close(progressChan)
 				return
@@ -246,7 +259,7 @@ func (jm *JobManager) ProcessJob(id string) {
 			jm.UpdateJobStatus(id, JobStatusExtracting)
 			tracks, err := ff.ListSubtitleTracks(job.Path)
 			if err != nil {
-				fmt.Printf("Job %s: Error listing subtitle tracks: %v\n", id, err)
+				slog.Error("Error listing subtitle tracks", "id", id, "path", job.Path, "error", err)
 				jm.SetJobError(id, fmt.Errorf("error listing subtitle tracks from '%s': %w", job.Path, err))
 				close(progressChan)
 				return
@@ -254,7 +267,7 @@ func (jm *JobManager) ProcessJob(id string) {
 
 			if len(tracks) == 0 {
 				errMsg := "no subtitle tracks found in the media file"
-				fmt.Printf("Job %s: %s\n", id, errMsg)
+				slog.Error("No subtitle tracks found", "id", id, "path", job.Path)
 				jm.SetJobError(id, fmt.Errorf(errMsg))
 				close(progressChan)
 				return
@@ -262,7 +275,7 @@ func (jm *JobManager) ProcessJob(id string) {
 
 			if job.TrackIndex < 0 || job.TrackIndex >= len(tracks) {
 				errMsg := fmt.Sprintf("invalid track index %d (file has %d tracks)", job.TrackIndex, len(tracks))
-				fmt.Printf("Job %s: %s\n", id, errMsg)
+				slog.Error("Invalid track index", "id", id, "index", job.TrackIndex, "total_tracks", len(tracks))
 				jm.SetJobError(id, fmt.Errorf(errMsg))
 				close(progressChan)
 				return
@@ -279,12 +292,12 @@ func (jm *JobManager) ProcessJob(id string) {
 				langCode = track.Language
 			}
 
-			fmt.Printf("Job %s: Extracting subtitle track %d (%s format) from '%s'...\n",
-				id, job.TrackIndex, outputFormat, job.Path)
+			slog.Info("Extracting subtitle track", "id", id, "track_index", job.TrackIndex, 
+				"format", outputFormat, "path", job.Path)
 
 			extractedPath, err = ff.ExtractSubtitleTrack(job.Path, job.TrackIndex, outputFormat, langCode)
 			if err != nil {
-				fmt.Printf("Job %s: Failed to extract subtitle: %v\n", id, err)
+				slog.Error("Failed to extract subtitle", "id", id, "error", err)
 				jm.SetJobError(id, fmt.Errorf("error extracting subtitle track %d from '%s': %w",
 					job.TrackIndex, job.Path, err))
 				close(progressChan)
@@ -294,7 +307,7 @@ func (jm *JobManager) ProcessJob(id string) {
 			// Verify extracted file exists and is readable
 			if _, err := os.Stat(extractedPath); os.IsNotExist(err) {
 				errMsg := fmt.Sprintf("extracted subtitle file '%s' does not exist", extractedPath)
-				fmt.Printf("Job %s: %s\n", id, errMsg)
+				slog.Error("Extracted subtitle file does not exist", "id", id, "path", extractedPath)
 				jm.SetJobError(id, fmt.Errorf(errMsg))
 				close(progressChan)
 				return
@@ -306,20 +319,20 @@ func (jm *JobManager) ProcessJob(id string) {
 			// Verify subtitle file exists and is accessible
 			if _, err := os.Stat(job.Path); os.IsNotExist(err) {
 				errMsg := fmt.Sprintf("subtitle file '%s' does not exist", job.Path)
-				fmt.Printf("Job %s: %s\n", id, errMsg)
+				slog.Error("Subtitle file does not exist", "id", id, "path", job.Path)
 				jm.SetJobError(id, fmt.Errorf(errMsg))
 				close(progressChan)
 				return
 			}
 
 			extractedPath = job.Path
-			fmt.Printf("Job %s: Using subtitle file directly: '%s'\n", id, extractedPath)
+			slog.Info("Using subtitle file directly", "id", id, "path", extractedPath)
 
 			// Update progress to 30% (skip extraction steps)
 			progressChan <- 20.0
 		} else {
 			errMsg := fmt.Sprintf("unsupported file type: %s", fileType)
-			fmt.Printf("Job %s: %s\n", id, errMsg)
+			slog.Error("Unsupported file type", "id", id, "file_type", fileType)
 			jm.SetJobError(id, fmt.Errorf(errMsg))
 			close(progressChan)
 			return
@@ -358,7 +371,7 @@ func (jm *JobManager) ProcessJob(id string) {
 		// Set the job result
 		err = jm.SetJobResult(id, outputPath)
 		if err != nil {
-			fmt.Printf("Error setting job result: %v\n", err)
+			slog.Error("Error setting job result", "id", id, "error", err)
 			close(progressChan)
 			return
 		}
@@ -369,6 +382,6 @@ func (jm *JobManager) ProcessJob(id string) {
 		// Close the progress channel as we're done
 		close(progressChan)
 
-		fmt.Printf("Job %s completed successfully\n", id)
+		slog.Info("Job completed successfully", "id", id)
 	}()
 }

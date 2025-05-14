@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FileType represents the detected type of a file
@@ -169,10 +171,11 @@ func isNumeric(s string) bool {
 
 // MediaFile represents a media file found in a directory scan
 type MediaFile struct {
-	Path     string   `json:"path"`
-	Type     string   `json:"type"`
-	FileType FileType `json:"-"` // Internal use only, not exported in JSON
-	BaseName string   `json:"-"` // Base name without extension, used for grouping
+	Path     string    `json:"path"`
+	Type     string    `json:"type"`
+	FileType FileType  `json:"-"` // Internal use only, not exported in JSON
+	BaseName string    `json:"-"` // Base name without extension, used for grouping
+	ModTime  time.Time `json:"-"` // Last modified time, used for comparison
 }
 
 // SubtitleInfo represents information about a subtitle track
@@ -188,13 +191,17 @@ type SubtitleInfo struct {
 
 // GroupedMediaFile represents a video file with its related subtitle files
 type GroupedMediaFile struct {
+	ScanTime  time.Time      `json:"scan_time,omitempty"`
 	VideoFile string         `json:"video_file,omitempty"`
 	Subtitles []SubtitleInfo `json:"subtitles,omitempty"`
 }
 
 // FindMediaFiles recursively scans a directory for media files (videos and subtitles)
 // and returns a list of grouped media files (videos with their associated subtitles)
-func FindMediaFiles(dirPath string) ([]GroupedMediaFile, error) {
+func FindMediaFiles(dirPath string, currentCached []GroupedMediaFile) ([]GroupedMediaFile, error) {
+	if currentCached == nil {
+		currentCached = []GroupedMediaFile{}
+	}
 	// Map to store files by directory
 	dirMap := make(map[string][]MediaFile)
 
@@ -231,6 +238,7 @@ func FindMediaFiles(dirPath string) ([]GroupedMediaFile, error) {
 				Path:     path,
 				Type:     fileType.String(),
 				FileType: fileType,
+				ModTime:  info.ModTime(),
 			}
 
 			// Add to the directory map
@@ -245,12 +253,24 @@ func FindMediaFiles(dirPath string) ([]GroupedMediaFile, error) {
 	}
 
 	// Group media files by directory, including embedded subtitles
-	return groupMediaFilesByDirectory(dirMap, ff), nil
+	return groupMediaFilesByDirectory(dirMap, ff, currentCached), nil
+}
+
+func findMediaPath(files []GroupedMediaFile, path string) (GroupedMediaFile, bool) {
+	for _, file := range files {
+		if file.VideoFile == path {
+			return file, true
+		}
+	}
+	return GroupedMediaFile{}, false
 }
 
 // groupMediaFilesByDirectory groups subtitle files with video files based on directory
 // and also detects embedded subtitles in video files using FFmpeg
-func groupMediaFilesByDirectory(dirMap map[string][]MediaFile, ff *FFmpeg) []GroupedMediaFile {
+func groupMediaFilesByDirectory(dirMap map[string][]MediaFile, ff *FFmpeg, currentCached []GroupedMediaFile) []GroupedMediaFile {
+	if currentCached == nil {
+		currentCached = []GroupedMediaFile{}
+	}
 	var result []GroupedMediaFile
 
 	// Helper to extract episode base (without extension and language/type tags)
@@ -317,34 +337,50 @@ func groupMediaFilesByDirectory(dirMap map[string][]MediaFile, ff *FFmpeg) []Gro
 						Title:        languageFullName(langCode),
 					})
 				}
+				// check if ffmpeg needs to be used
+				currentCachedVideoFile, found := findMediaPath(currentCached, videoFile.Path)
 
-				// Check for embedded subtitles in the video file
-				embeddedTracks, err := ff.ListSubtitleTracks(videoFile.Path)
-				if err == nil {
-					for _, track := range embeddedTracks {
-						subType := ""
-						if t, ok := nonLanguageTags[strings.ToLower(track.Language)]; ok {
-							subType = t
-						} else if t, ok := nonLanguageTags[strings.ToLower(track.Format)]; ok {
-							subType = t
+				var probe = false
+				if found {
+					// Check if the video file has changed since last scan
+					slog.Debug(videoFile.Path, "last scan time", currentCachedVideoFile.ScanTime, "current mod time", videoFile.ModTime)
+					if currentCachedVideoFile.ScanTime.Before(videoFile.ModTime) {
+						probe = true
+					}
+				} else {
+					// If not found in current cache, we need to probe
+					probe = true
+				}
+				if probe {
+					// Check for embedded subtitles in the video file
+					embeddedTracks, err := ff.ListSubtitleTracks(videoFile.Path)
+					if err == nil {
+						for _, track := range embeddedTracks {
+							subType := ""
+							if t, ok := nonLanguageTags[strings.ToLower(track.Language)]; ok {
+								subType = t
+							} else if t, ok := nonLanguageTags[strings.ToLower(track.Format)]; ok {
+								subType = t
+							}
+							langCode := normalizeLanguageCode(track.Language)
+							title := track.Title
+							if title == "" {
+								title = languageFullName(langCode)
+							}
+							subtitleInfos = append(subtitleInfos, SubtitleInfo{
+								TrackIndex:   track.Index,
+								Language:     langCode,
+								Format:       track.Format,
+								Embedded:     true,
+								SubtitleType: subType,
+								Title:        title,
+							})
 						}
-						langCode := normalizeLanguageCode(track.Language)
-						title := track.Title
-						if title == "" {
-							title = languageFullName(langCode)
-						}
-						subtitleInfos = append(subtitleInfos, SubtitleInfo{
-							TrackIndex:   track.Index,
-							Language:     langCode,
-							Format:       track.Format,
-							Embedded:     true,
-							SubtitleType: subType,
-							Title:        title,
-						})
 					}
 				}
 
 				result = append(result, GroupedMediaFile{
+					ScanTime:  time.Now(),
 					VideoFile: videoFile.Path,
 					Subtitles: subtitleInfos,
 				})
@@ -419,6 +455,7 @@ var languageFullNameMap = map[string]string{
 	"af": "Afrikaans",
 	// ... add more as needed
 }
+
 // languageCodeMap maps various language representations to canonical ISO 639-1 codes
 var languageCodeMap = map[string]string{
 	// English and variants

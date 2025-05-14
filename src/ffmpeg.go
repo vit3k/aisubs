@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +56,7 @@ func NewFFmpeg() (*FFmpeg, error) {
 
 	return &FFmpeg{
 		Path:      path,
-		LogOutput: true, // Default to logging output
+		LogOutput: false, // Default to not logging output
 	}, nil
 }
 
@@ -92,7 +93,7 @@ func NewFFmpegWithPath(path string) (*FFmpeg, error) {
 
 	return &FFmpeg{
 		Path:      path,
-		LogOutput: true,
+		LogOutput: false, // Don't log output by default
 	}, nil
 }
 
@@ -120,9 +121,7 @@ func (ff *FFmpeg) RunCommand(args ...string) (string, string, error) {
 	// cmd = exec.CommandContext(ctx, ff.Path, args...)
 
 	// Log the command being executed for debugging
-	if ff.LogOutput {
-		fmt.Printf("Executing: %s %s\n", ff.Path, strings.Join(args, " "))
-	}
+	slog.Debug("Executing FFmpeg command", "command", ff.Path, "args", strings.Join(args, " "))
 
 	// Create pipes for stdout and stderr
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -158,7 +157,7 @@ func (ff *FFmpeg) RunCommand(args ...string) (string, string, error) {
 			if n > 0 {
 				stdout.Write(buf[:n])
 				if ff.LogOutput {
-					os.Stdout.Write(buf[:n])
+					slog.Debug("FFmpeg stdout", "output", string(buf[:n]))
 				}
 			}
 			if err != nil {
@@ -178,7 +177,7 @@ func (ff *FFmpeg) RunCommand(args ...string) (string, string, error) {
 			if n > 0 {
 				stderr.Write(buf[:n])
 				if ff.LogOutput {
-					os.Stderr.Write(buf[:n])
+					slog.Debug("FFmpeg stderr", "output", string(buf[:n]))
 				}
 			}
 			if err != nil {
@@ -284,7 +283,7 @@ func (ff *FFmpeg) ListSubtitleTracks(mediaPath string) ([]SubtitleTrack, error) 
 				track.Language = normalizeLanguageCode(track.Title)
 			}
 
-			//fmt.Printf("Parsed track: Index=%d, Language=%s, Format=%s, Title=%s\n", track.Index, track.Language, track.Format, track.Title)
+			//slog.Debug("Parsed subtitle track", "index", track.Index, "language", track.Language, "format", track.Format, "title", track.Title)
 			tracks = append(tracks, track)
 			trackIndex++
 		}
