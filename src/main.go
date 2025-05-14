@@ -9,18 +9,19 @@ import (
 )
 
 func main() {
+	LoadConfig("./config.yaml")
 	w := os.Stderr
 
 	// set global logger with custom options
 	slog.SetDefault(slog.New(
 		tint.NewHandler(w, &tint.Options{
-			Level:      slog.LevelDebug,
-			TimeFormat: "2006-01-02 15:04:05.999999999",
+			Level:      GetLogLevelSlog(),
+			TimeFormat: "2006-01-02 15:04:05.999999",
 		}),
 	))
 
 	slog.Info("Starting application")
-	LoadConfig("./config.yaml")
+
 	InitDatabase()
 	stopChannel := RunBackgroundSync()
 	RunWebService()

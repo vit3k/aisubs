@@ -242,9 +242,8 @@ func (jm *JobManager) ProcessJob(id string) {
 		if fileType.IsVideo() {
 			// Verify file exists and is accessible
 			if _, err := os.Stat(job.Path); os.IsNotExist(err) {
-				errMsg := fmt.Sprintf("video file '%s' does not exist", job.Path)
 				slog.Error("Video file does not exist", "id", id, "path", job.Path)
-				jm.SetJobError(id, fmt.Errorf(errMsg))
+				jm.SetJobError(id, fmt.Errorf("video file '%s' does not exist", job.Path))
 				close(progressChan)
 				return
 			}
@@ -266,17 +265,15 @@ func (jm *JobManager) ProcessJob(id string) {
 			}
 
 			if len(tracks) == 0 {
-				errMsg := "no subtitle tracks found in the media file"
 				slog.Error("No subtitle tracks found", "id", id, "path", job.Path)
-				jm.SetJobError(id, fmt.Errorf(errMsg))
+				jm.SetJobError(id, fmt.Errorf("no subtitle tracks found in the media file"))
 				close(progressChan)
 				return
 			}
 
 			if job.TrackIndex < 0 || job.TrackIndex >= len(tracks) {
-				errMsg := fmt.Sprintf("invalid track index %d (file has %d tracks)", job.TrackIndex, len(tracks))
 				slog.Error("Invalid track index", "id", id, "index", job.TrackIndex, "total_tracks", len(tracks))
-				jm.SetJobError(id, fmt.Errorf(errMsg))
+				jm.SetJobError(id, fmt.Errorf("invalid track index %d (file has %d tracks)", job.TrackIndex, len(tracks)))
 				close(progressChan)
 				return
 			}
@@ -292,7 +289,7 @@ func (jm *JobManager) ProcessJob(id string) {
 				langCode = track.Language
 			}
 
-			slog.Info("Extracting subtitle track", "id", id, "track_index", job.TrackIndex, 
+			slog.Info("Extracting subtitle track", "id", id, "track_index", job.TrackIndex,
 				"format", outputFormat, "path", job.Path)
 
 			extractedPath, err = ff.ExtractSubtitleTrack(job.Path, job.TrackIndex, outputFormat, langCode)
@@ -306,9 +303,8 @@ func (jm *JobManager) ProcessJob(id string) {
 
 			// Verify extracted file exists and is readable
 			if _, err := os.Stat(extractedPath); os.IsNotExist(err) {
-				errMsg := fmt.Sprintf("extracted subtitle file '%s' does not exist", extractedPath)
 				slog.Error("Extracted subtitle file does not exist", "id", id, "path", extractedPath)
-				jm.SetJobError(id, fmt.Errorf(errMsg))
+				jm.SetJobError(id, fmt.Errorf("extracted subtitle file '%s' does not exist", extractedPath))
 				close(progressChan)
 				return
 			}
@@ -318,9 +314,8 @@ func (jm *JobManager) ProcessJob(id string) {
 		} else if fileType.IsSubtitle() {
 			// Verify subtitle file exists and is accessible
 			if _, err := os.Stat(job.Path); os.IsNotExist(err) {
-				errMsg := fmt.Sprintf("subtitle file '%s' does not exist", job.Path)
 				slog.Error("Subtitle file does not exist", "id", id, "path", job.Path)
-				jm.SetJobError(id, fmt.Errorf(errMsg))
+				jm.SetJobError(id, fmt.Errorf("subtitle file '%s' does not exist", job.Path))
 				close(progressChan)
 				return
 			}
@@ -331,9 +326,8 @@ func (jm *JobManager) ProcessJob(id string) {
 			// Update progress to 30% (skip extraction steps)
 			progressChan <- 20.0
 		} else {
-			errMsg := fmt.Sprintf("unsupported file type: %s", fileType)
 			slog.Error("Unsupported file type", "id", id, "file_type", fileType)
-			jm.SetJobError(id, fmt.Errorf(errMsg))
+			jm.SetJobError(id, fmt.Errorf("unsupported file type: %s", fileType))
 			close(progressChan)
 			return
 		}

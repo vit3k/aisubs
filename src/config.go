@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config represents the application configuration structure
 type Config struct {
-	WebService WebServiceConfig           `yaml:"web_service"`
-	MediaPaths map[string]MediaPathConfig `yaml:"media_paths"`
-	Database   DatabaseConfig             `yaml:"database"`
+	WebService   WebServiceConfig           `yaml:"web_service"`
+	MediaPaths   map[string]MediaPathConfig `yaml:"media_paths"`
+	Database     DatabaseConfig             `yaml:"database"`
+	SyncInterval time.Duration              `yaml:"sync_interval"`
+	LogLevel     string                     `yaml:"log_level"`
 }
 
 // DatabaseConfig contains database specific configuration
@@ -127,4 +130,23 @@ func GetMediaPath(name string) (string, error) {
 // GetAllMediaPaths returns all configured media paths
 func GetAllMediaPaths() map[string]MediaPathConfig {
 	return GetConfig().MediaPaths
+}
+
+func GetLogLevel() string {
+	return GetConfig().LogLevel
+}
+
+func GetLogLevelSlog() slog.Level {
+	switch GetLogLevel() {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

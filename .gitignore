@@ -69,3 +69,6 @@ aisubs
 # Data directory - ignore content but keep directory
 data/*
 !data/.gitkeep
+
+config.yaml
+*.db

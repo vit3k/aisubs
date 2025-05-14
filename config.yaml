@@ -13,3 +13,8 @@ media_paths:
     tvshows:
         path: "/mnt/media/tvshows"
         description: "TV series collection"
+
+# Sync interval configuration
+sync_interval: 5m
+
+log_level: info
